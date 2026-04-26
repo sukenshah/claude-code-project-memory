@@ -30,6 +30,12 @@ It does **not**:
 - Replace a project wiki or ADR process — it captures what Claude learned, not what humans decided
 - Provide cross-project search or a global memory layer (use separate MCP server instances per project)
 
+## Architecture
+
+![Architecture diagram](architecture.svg)
+
+> Source: [architecture.excalidraw](architecture.excalidraw) — open in [Excalidraw](https://excalidraw.com) to edit.
+
 ## How it works
 
 At the end of each Claude Code session, a stop hook calls `write_session` to persist:
