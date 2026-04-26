@@ -1,0 +1,26 @@
+{
+  "name": "claude-code-project-memory",
+  "version": "1.0.0",
+  "description": "MCP server for Claude project specific long-term memory (SQLite)",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "npm install && tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.2",
+    "better-sqlite3": "^11.0.0",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3"
+  }
+}
