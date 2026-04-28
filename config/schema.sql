@@ -42,9 +42,9 @@ CREATE TABLE IF NOT EXISTS transcripts (
   content       TEXT NOT NULL
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS insight_vec USING vec0(
+CREATE VIRTUAL TABLE IF NOT EXISTS insight_vec_v2 USING vec0(
   insight_id INTEGER PRIMARY KEY,
-  embedding  FLOAT[384]
+  embedding FLOAT[384] distance_metric=cosine
 );
 
 CREATE INDEX IF NOT EXISTS idx_insights_session ON insights(session_id);
