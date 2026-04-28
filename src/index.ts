@@ -67,16 +67,12 @@ async function getEmbedder(): Promise<Embedder> {
 async function embed(text: string): Promise<Float32Array> {
   const model = await getEmbedder();
   const out = await model(text, { pooling: "mean", normalize: true });
-  return new Float32Array(out.data);
+  return out.data;
 }
 
 async function storeEmbedding(insightId: number, title: string, body: string): Promise<void> {
-  try {
-    const vec = await embed(`${title}\n${body}`);
-    insertEmbedding.run(insightId, vec.buffer);
-  } catch (err) {
-    process.stderr.write(`[project-memory] embedding failed for insight #${insightId}: ${err}\n`);
-  }
+  const vec = await embed(`${title}. ${body}`);
+  insertEmbedding.run(BigInt(insightId), vec);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -327,10 +323,10 @@ server.registerTool(
              WHERE embedding MATCH ?
              AND k = ?
              ORDER BY distance`
-          ).all(queryVec.buffer, limit * 4) as Array<{ insight_id: number; distance: number }>;
+          ).all(queryVec, limit * 4) as Array<{ insight_id: BigInt; distance: BigInt }>;
 
           if (knnRows.length > 0) {
-            const ids = knnRows.map((r) => r.insight_id);
+            const ids = knnRows.map((r) => Number(r.insight_id));
             rows = fetchByIds(ids).slice(0, limit);
             usedVector = true;
           }
@@ -516,8 +512,12 @@ server.registerTool(
 
     let count = 0;
     for (const row of missing) {
-      await storeEmbedding(row.id, row.title, row.body);
-      count++;
+      try {
+        await storeEmbedding(row.id, row.title, row.body);
+        count++;   
+      } catch (err) {
+        process.stderr.write(`[project-memory] embedding failed for insight #${row.id}: ${err}\n`);
+      }
     }
 
     return {
