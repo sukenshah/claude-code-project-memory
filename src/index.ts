@@ -1,9 +1,11 @@
+import { pipeline } from "@huggingface/transformers";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import Database from "better-sqlite3";
 import { mkdirSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import * as sqliteVec from "sqlite-vec";
 import { z } from "zod";
 
 // ── DB setup ──────────────────────────────────────────────────────────────────
@@ -14,6 +16,7 @@ const DB_PATH = join(PROJECT_PATH, ".claude", "project-memory", "insights.db");
 mkdirSync(dirname(DB_PATH), { recursive: true });
 
 const db = new Database(DB_PATH);
+sqliteVec.load(db);
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");
 
@@ -44,6 +47,37 @@ const insertTag = db.prepare(
 const insertTranscript = db.prepare(
   `INSERT OR REPLACE INTO transcripts (session_id, content) VALUES (?, ?)`
 );
+
+const insertEmbedding = db.prepare(
+  `INSERT OR REPLACE INTO insight_vec (insight_id, embedding) VALUES (?, ?)`
+);
+
+// ── Embedding helpers ─────────────────────────────────────────────────────────
+
+type Embedder = (text: string, opts: Record<string, unknown>) => Promise<{ data: Float32Array }>;
+let _embedder: Embedder | null = null;
+
+async function getEmbedder(): Promise<Embedder> {
+  if (!_embedder) {
+    _embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2") as unknown as Embedder;
+  }
+  return _embedder;
+}
+
+async function embed(text: string): Promise<Float32Array> {
+  const model = await getEmbedder();
+  const out = await model(text, { pooling: "mean", normalize: true });
+  return new Float32Array(out.data);
+}
+
+async function storeEmbedding(insightId: number, title: string, body: string): Promise<void> {
+  try {
+    const vec = await embed(`${title}\n${body}`);
+    insertEmbedding.run(insightId, vec.buffer);
+  } catch (err) {
+    process.stderr.write(`[project-memory] embedding failed for insight #${insightId}: ${err}\n`);
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -110,7 +144,7 @@ server.registerTool(
       transcript: z.string().optional().describe("Full session transcript (JSON or markdown)"),
     },
   },
-  (input) => {
+  async (input) => {
     const projectPath = input.project_path ?? PROJECT_PATH;
     const now = Date.now();
 
@@ -132,9 +166,9 @@ server.registerTool(
         created_at: now,
       });
 
-      let count = 0;
+      const inserted: Array<{ id: number; title: string; body: string }> = [];
       for (const insight of input.insights ?? []) {
-        insertInsightWithTags(
+        const id = insertInsightWithTags(
           input.session_id,
           insight.type,
           insight.title,
@@ -142,20 +176,21 @@ server.registerTool(
           insight.file_ref,
           insight.tags ?? []
         );
-        count++;
+        inserted.push({ id, title: insight.title, body: insight.body });
       }
 
       if (input.transcript) {
         insertTranscript.run(input.session_id, input.transcript);
       }
 
-      return count;
+      return inserted;
     });
 
-    const insightCount = writeAll();
+    const inserted = writeAll();
+    await Promise.all(inserted.map((i) => storeEmbedding(i.id, i.title, i.body)));
     return {
       content: [
-        { type: "text", text: `Session ${input.session_id} saved. ${insightCount} insight(s) stored.` },
+        { type: "text", text: `Session ${input.session_id} saved. ${inserted.length} insight(s) stored.` },
       ],
     };
   }
@@ -176,13 +211,19 @@ server.registerTool(
       tags: z.array(z.string()).optional(),
     },
   },
-  (input) => {
+  async (input) => {
     const exists = db.prepare("SELECT id FROM sessions WHERE id = ?").get(input.session_id);
     if (!exists) {
-      return {
-        content: [{ type: "text", text: `Error: session ${input.session_id} not found. Call write_session first.` }],
-        isError: true,
-      };
+      const now = Date.now();
+      insertSession.run({
+        id: input.session_id,
+        project_path: PROJECT_PATH,
+        started_at: now,
+        ended_at: now,
+        model: null,
+        turn_count: 0,
+        total_tokens: 0,
+      });
     }
 
     const id = insertInsightWithTags(
@@ -193,6 +234,7 @@ server.registerTool(
       input.file_ref,
       input.tags ?? []
     );
+    await storeEmbedding(id, input.title, input.body);
 
     return { content: [{ type: "text", text: `Insight #${id} added to session ${input.session_id}.` }] };
   }
@@ -210,38 +252,53 @@ server.registerTool(
       type: z.enum(["decision", "pattern", "mistake", "blocker", "learning"]).optional(),
       tag: z.string().optional().describe("Filter by tag (case-insensitive)"),
       project_path: z.string().optional(),
-      search: z.string().optional().describe("Substring search on title and body"),
+      search: z.string().optional().describe("Semantic search on title and body (intent-based, not exact match)"),
       limit: z.number().optional().default(20),
     },
   },
-  (input) => {
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+  async (input) => {
+    const limit = input.limit ?? 20;
 
-    if (input.type) {
-      conditions.push("i.type = ?");
-      params.push(input.type);
-    }
-    if (input.project_path) {
-      conditions.push("s.project_path = ?");
-      params.push(input.project_path);
-    }
-    if (input.search) {
-      conditions.push("(i.title LIKE ? OR i.body LIKE ?)");
-      const like = `%${input.search}%`;
-      params.push(like, like);
-    }
+    // Build metadata filters (applied regardless of search mode)
+    const metaConditions: string[] = [];
+    const metaParams: unknown[] = [];
+    if (input.type) { metaConditions.push("i.type = ?"); metaParams.push(input.type); }
+    if (input.project_path) { metaConditions.push("s.project_path = ?"); metaParams.push(input.project_path); }
     if (input.tag) {
-      conditions.push(
-        "EXISTS (SELECT 1 FROM insight_tags it WHERE it.insight_id = i.id AND it.tag = ?)"
-      );
-      params.push(input.tag.toLowerCase().trim());
+      metaConditions.push("EXISTS (SELECT 1 FROM insight_tags it WHERE it.insight_id = i.id AND it.tag = ?)");
+      metaParams.push(input.tag.toLowerCase().trim());
     }
 
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    type InsightRow = {
+      id: number; session_id: string; type: string; title: string;
+      body: string; file_ref: string | null; created_at: number;
+      project_path: string; tags: string | null;
+    };
 
-    const rows = db
-      .prepare(
+    const fetchByIds = (ids: number[]): InsightRow[] => {
+      const placeholders = ids.map(() => "?").join(", ");
+      const idCondition = `i.id IN (${placeholders})`;
+      const conditions = [idCondition, ...metaConditions];
+      const where = `WHERE ${conditions.join(" AND ")}`;
+      // Preserve KNN ordering via CASE expression
+      const orderCase = ids.map((id, i) => `WHEN i.id = ${id} THEN ${i}`).join(" ");
+      return db.prepare(
+        `SELECT i.id, i.session_id, i.type, i.title, i.body, i.file_ref, i.created_at,
+                s.project_path,
+                GROUP_CONCAT(it.tag, ', ') AS tags
+         FROM insights i
+         JOIN sessions s ON s.id = i.session_id
+         LEFT JOIN insight_tags it ON it.insight_id = i.id
+         ${where}
+         GROUP BY i.id
+         ORDER BY CASE ${orderCase} ELSE ${ids.length} END`
+      ).all(...ids, ...metaParams) as InsightRow[];
+    };
+
+    const fetchWithWhere = (extraConditions: string[], extraParams: unknown[]): InsightRow[] => {
+      const all = [...metaConditions, ...extraConditions];
+      const where = all.length ? `WHERE ${all.join(" AND ")}` : "";
+      return db.prepare(
         `SELECT i.id, i.session_id, i.type, i.title, i.body, i.file_ref, i.created_at,
                 s.project_path,
                 GROUP_CONCAT(it.tag, ', ') AS tags
@@ -252,18 +309,48 @@ server.registerTool(
          GROUP BY i.id
          ORDER BY i.created_at DESC
          LIMIT ?`
-      )
-      .all(...params, input.limit ?? 20) as Array<{
-        id: number; session_id: string; type: string; title: string;
-        body: string; file_ref: string | null; created_at: number;
-        project_path: string; tags: string | null;
-      }>;
+      ).all(...metaParams, ...extraParams, limit) as InsightRow[];
+    };
 
-    if (!rows.length) {
+    let rows: InsightRow[];
+
+    if (input.search) {
+      // Try vector KNN search; fall back to LIKE if vec table is empty or embedding fails
+      const vecCount = (db.prepare("SELECT count(*) AS n FROM insight_vec").get() as { n: number }).n;
+      let usedVector = false;
+      if (vecCount > 0) {
+        try {
+          const queryVec = await embed(input.search);
+          const knnRows = db.prepare(
+            `SELECT insight_id, distance
+             FROM insight_vec
+             WHERE embedding MATCH ?
+             AND k = ?
+             ORDER BY distance`
+          ).all(queryVec.buffer, limit * 4) as Array<{ insight_id: number; distance: number }>;
+
+          if (knnRows.length > 0) {
+            const ids = knnRows.map((r) => r.insight_id);
+            rows = fetchByIds(ids).slice(0, limit);
+            usedVector = true;
+          }
+        } catch (err) {
+          process.stderr.write(`[project-memory] semantic search failed, falling back to LIKE: ${err}\n`);
+        }
+      }
+      if (!usedVector) {
+        const like = `%${input.search}%`;
+        rows = fetchWithWhere(["(i.title LIKE ? OR i.body LIKE ?)"], [like, like]);
+      }
+    } else {
+      rows = fetchWithWhere([], []);
+    }
+
+    if (!rows!.length) {
       return { content: [{ type: "text", text: "No insights found." }] };
     }
 
-    const text = rows
+    const text = rows!
       .map((r) => {
         const date = new Date(r.created_at).toISOString().slice(0, 10);
         const ref = r.file_ref ? `  ref: ${r.file_ref}\n` : "";
@@ -272,7 +359,7 @@ server.registerTool(
       })
       .join("\n\n---\n\n");
 
-    return { content: [{ type: "text", text: `${rows.length} insight(s):\n\n${text}` }] };
+    return { content: [{ type: "text", text: `${rows!.length} insight(s):\n\n${text}` }] };
   }
 );
 
@@ -406,6 +493,36 @@ server.registerTool(
     }
 
     return { content: [{ type: "text", text: lines.join("\n") }] };
+  }
+);
+
+// ── reindex_insights ──────────────────────────────────────────────────────────
+
+server.registerTool(
+  "reindex_insights",
+  {
+    description:
+      "Backfill semantic embeddings for insights that predate vector search. " +
+      "Run once after upgrading to add vector search support to existing insights.",
+    inputSchema: {},
+  },
+  async () => {
+    const missing = db
+      .prepare(
+        `SELECT i.id, i.title, i.body FROM insights i
+         WHERE NOT EXISTS (SELECT 1 FROM insight_vec v WHERE v.insight_id = i.id)`
+      )
+      .all() as Array<{ id: number; title: string; body: string }>;
+
+    let count = 0;
+    for (const row of missing) {
+      await storeEmbedding(row.id, row.title, row.body);
+      count++;
+    }
+
+    return {
+      content: [{ type: "text", text: `Reindexed ${count} insight(s). ${missing.length - count} failed (see server logs).` }],
+    };
   }
 );
 

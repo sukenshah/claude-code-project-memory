@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS transcripts (
   content       TEXT NOT NULL
 );
 
+CREATE VIRTUAL TABLE IF NOT EXISTS insight_vec USING vec0(
+  insight_id INTEGER PRIMARY KEY,
+  embedding  FLOAT[384]
+);
+
 CREATE INDEX IF NOT EXISTS idx_insights_session ON insights(session_id);
 CREATE INDEX IF NOT EXISTS idx_insights_type    ON insights(type);
 CREATE INDEX IF NOT EXISTS idx_insight_tags_tag ON insight_tags(tag);

@@ -1,7 +1,7 @@
 {
   "name": "claude-code-project-memory",
   "version": "1.0.0",
-  "description": "MCP server for Claude project specific long-term memory (SQLite)",
+  "description": "MCP server for Claude project specific long-term memory (SQLite) with vector extensions",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -10,8 +10,10 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.0.0",
     "@modelcontextprotocol/sdk": "^1.10.2",
     "better-sqlite3": "^11.0.0",
+    "sqlite-vec": "^0.1.0",
     "zod": "^3.23.0"
   },
   "engines": {
