@@ -45,13 +45,13 @@ Insights are written in two ways:
 - **End of session** — a stop hook calls `write_session` to persist session metadata (model, duration, token count), a narrative summary and outcome, and any structured insights extracted from the session.
 - **Inline during a session** — Claude calls `add_insight` immediately when a decision, pattern, mistake, or learning occurs rather than waiting until the end. If the session record doesn't exist yet, `add_insight` creates it automatically.
 
-Each insight write also generates a **semantic embedding** using the `Xenova/all-MiniLM-L6-v2` model (384-dimensional, runs locally via `@huggingface/transformers`). The embedding encodes the meaning of the insight's title and body and is stored alongside the text in a `sqlite-vec` virtual table (`insight_vec`). Model weights (~23 MB) are downloaded from Hugging Face on first use and cached permanently in `~/.cache/huggingface/`.
+Each insight write also generates a **semantic embedding** using the `Xenova/all-MiniLM-L6-v2` model (384-dimensional, runs locally via `@huggingface/transformers`). The embedding encodes the meaning of the insight's title and body and is stored alongside the text in a `sqlite-vec` virtual table (`insight_vec_v2`). Model weights (~23 MB) are downloaded from Hugging Face on first use and cached permanently in `~/.cache/huggingface/`.
 
 ### Querying insights
 
 At the start of the next session, Claude calls `query_insights` to surface relevant past context before beginning work.
 
-When a `search` term is provided, `query_insights` first generates an embedding for the query, then runs a K-nearest-neighbour (KNN) lookup against `insight_vec` using vector cosine distance. This returns semantically related insights even when the exact wording differs — for example, searching *"auth flow"* can surface an insight titled *"JWT validation gate added before route handlers"*. Other filters (`type`, `tag`, `project_path`) are applied on top of the KNN results to narrow further.
+When a `search` term is provided, `query_insights` first generates an embedding for the query, then runs a K-nearest-neighbour (KNN) lookup against `insight_vec_v2` using vector cosine distance. This returns semantically related insights even when the exact wording differs — for example, searching *"auth flow"* can surface an insight titled *"JWT validation gate added before route handlers"*. Other filters (`type`, `tag`, `project_path`) are applied on top of the KNN results to narrow further.
 
 If the embedding model is unavailable or the vector table is empty, `query_insights` falls back to SQL `LIKE` substring matching automatically. Existing insights written before vector search was added can be backfilled with `reindex_insights`.
 

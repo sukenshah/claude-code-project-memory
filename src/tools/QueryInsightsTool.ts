@@ -105,7 +105,7 @@ export class QueryInsightsTool implements BaseTool {
     limit: number
   ): Promise<InsightRow[]> {
     const vecCount = (
-      this.db.db.prepare("SELECT count(*) AS n FROM insight_vec").get() as { n: number }
+      this.db.db.prepare("SELECT count(*) AS n FROM insight_vec_v2").get() as { n: number }
     ).n;
 
     if (vecCount > 0) {
