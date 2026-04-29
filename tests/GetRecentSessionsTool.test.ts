@@ -80,4 +80,38 @@ describe('GetRecentSessionsTool', () => {
     await (registeredHandler as any)({});
     expect(mockDb.db.prepare().all).toHaveBeenCalledWith(10);
   });
+
+  it('should include WHERE clause when project_path provided', async () => {
+    mockDb.db.prepare().all.mockReturnValue([]);
+
+    await (registeredHandler as any)({ project_path: '/my/project' });
+
+    const prepareCalls = mockDb.db.prepare.mock.calls;
+    const sql = prepareCalls.find((c: any[]) =>
+      typeof c[0] === 'string' && c[0].includes('FROM sessions')
+    )?.[0] as string;
+
+    expect(sql).toContain('WHERE s.project_path = ?');
+  });
+
+  it('should render unknown for null model and outcome', async () => {
+    const now = Date.now();
+    mockDb.db.prepare().all.mockReturnValue([{
+      id: 'null-fields-session',
+      project_path: '/app',
+      started_at: now - 60000,
+      ended_at: now,
+      model: null,
+      turn_count: 0,
+      summary: null,
+      outcome: null,
+      insight_count: 0,
+    }]);
+
+    const result = await (registeredHandler as any)({});
+    const text = result.content[0].text;
+
+    expect(text).toContain('outcome: unknown');
+    expect(text).toContain('model: unknown');
+  });
 });

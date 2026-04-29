@@ -31,7 +31,7 @@ describe('AddInsightTool', () => {
     };
 
     mockServer = {
-      registerTool: vi.fn((name, schema, handler) => {
+      registerTool: vi.fn((_name, _schema, handler) => {
         registeredHandler = handler;
       }),
     };
@@ -73,5 +73,51 @@ describe('AddInsightTool', () => {
 
     // Verify session insertion was called
     expect(mockDb.insertSession).toHaveBeenCalled();
+  });
+
+  it('should not create session if it already exists', async () => {
+    // Default mock returns existing session
+    const input = {
+      session_id: 'existing-session',
+      type: 'mistake',
+      title: 'Off by one',
+      body: 'Index started at 1 instead of 0.',
+    };
+
+    await (registeredHandler as any)(input);
+
+    expect(mockDb.insertSession).not.toHaveBeenCalled();
+  });
+
+  it('should pass file_ref when provided', async () => {
+    const input = {
+      session_id: 'session-with-ref',
+      type: 'decision',
+      title: 'Use WAL mode',
+      body: 'Better concurrent read performance.',
+      file_ref: 'src/db.ts:23',
+    };
+
+    await (registeredHandler as any)(input);
+
+    expect(mockDb.insertInsightWithTags).toHaveBeenCalledWith(
+      'session-with-ref', 'decision', 'Use WAL mode',
+      'Better concurrent read performance.', 'src/db.ts:23', []
+    );
+  });
+
+  it('should default tags to empty array when not provided', async () => {
+    const input = {
+      session_id: 'session-no-tags',
+      type: 'blocker',
+      title: 'Build fails',
+      body: 'Missing peer dep.',
+    };
+
+    await (registeredHandler as any)(input);
+
+    expect(mockDb.insertInsightWithTags).toHaveBeenCalledWith(
+      'session-no-tags', 'blocker', 'Build fails', 'Missing peer dep.', undefined, []
+    );
   });
 });

@@ -166,4 +166,14 @@ describe("QueryInsightsTool", () => {
 
     expect(mockDb.db.prepare).toHaveBeenCalledWith(expect.stringContaining("i.title LIKE ? OR i.body LIKE ?"));
   });
+
+  it("should pass custom limit to query", async () => {
+    mockDb.db.prepare().all.mockReturnValue([]);
+
+    await (registeredHandler as any)({ limit: 5 });
+
+    const allCalls = mockDb.db.prepare().all.mock.calls;
+    const lastArgs = allCalls[allCalls.length - 1];
+    expect(lastArgs[lastArgs.length - 1]).toBe(5);
+  });
 });

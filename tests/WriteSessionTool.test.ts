@@ -98,4 +98,76 @@ describe('WriteSessionTool', () => {
     expect(mockEmbeddings.store).not.toHaveBeenCalled();
     expect(result.content[0].text).toContain('Session empty-session saved');
   });
+
+  it('should persist transcript when provided', async () => {
+    const input = {
+      session_id: 'transcript-session',
+      started_at: Date.now() - 2000,
+      ended_at: Date.now(),
+      summary: 'Has transcript',
+      outcome: 'completed',
+      transcript: 'User: hello\nAssistant: hi',
+    };
+
+    await (registeredHandler as any)(input);
+
+    expect(mockDb.insertTranscript).toHaveBeenCalledWith('transcript-session', 'User: hello\nAssistant: hi');
+  });
+
+  it('should store embeddings for each insight', async () => {
+    mockDb.insertInsightWithTags
+      .mockReturnValueOnce(10)
+      .mockReturnValueOnce(11);
+
+    const input = {
+      session_id: 'multi-insight',
+      started_at: Date.now() - 3000,
+      ended_at: Date.now(),
+      summary: 'Two insights',
+      outcome: 'completed',
+      insights: [
+        { type: 'decision', title: 'First', body: 'Body 1' },
+        { type: 'pattern', title: 'Second', body: 'Body 2' },
+      ],
+    };
+
+    const result = await (registeredHandler as any)(input);
+
+    expect(mockEmbeddings.store).toHaveBeenCalledTimes(2);
+    expect(mockEmbeddings.store).toHaveBeenCalledWith(10, 'First', 'Body 1');
+    expect(mockEmbeddings.store).toHaveBeenCalledWith(11, 'Second', 'Body 2');
+    expect(result.content[0].text).toContain('2 insight(s)');
+  });
+
+  it('should default project_path to db.projectPath when not provided', async () => {
+    const input = {
+      session_id: 'no-path-session',
+      started_at: Date.now() - 1000,
+      ended_at: Date.now(),
+      summary: 'No path',
+      outcome: 'abandoned',
+    };
+
+    await (registeredHandler as any)(input);
+
+    expect(mockDb.insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ project_path: '/test/path' })
+    );
+  });
+
+  it('should pass turn_count and total_tokens with defaults of 0', async () => {
+    const input = {
+      session_id: 'defaults-session',
+      started_at: Date.now() - 1000,
+      ended_at: Date.now(),
+      summary: 'Defaults test',
+      outcome: 'completed',
+    };
+
+    await (registeredHandler as any)(input);
+
+    expect(mockDb.insertSession).toHaveBeenCalledWith(
+      expect.objectContaining({ turn_count: 0, total_tokens: 0, model: null })
+    );
+  });
 });

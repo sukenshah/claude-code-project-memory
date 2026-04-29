@@ -86,6 +86,72 @@ describe('GetSessionDetailTool', () => {
 
     const result = await (registeredHandler as any)({ session_id: 'ghost' });
 
+    expect(result.isError).toBe(true);
     expect(result.content[0].text).toBe('Session ghost not found.');
+  });
+
+  it('should show zero insights when session has none', async () => {
+    mockDb.db.prepare().get.mockReturnValue({
+      id: 'empty-s',
+      started_at: Date.now(),
+      ended_at: Date.now(),
+      project_path: '/app',
+      turn_count: 0,
+      total_tokens: 0,
+      summary: 'Nothing',
+      outcome: 'completed',
+    });
+    mockDb.db.prepare().all.mockReturnValue([]);
+
+    const result = await (registeredHandler as any)({ session_id: 'empty-s' });
+
+    expect(result.content[0].text).toContain('Insights (0):');
+  });
+
+  it('should render insight file_ref and tags when present', async () => {
+    mockDb.db.prepare().get.mockReturnValue({
+      id: 'rich-s',
+      started_at: Date.now() - 1000,
+      ended_at: Date.now(),
+      project_path: '/app',
+      turn_count: 2,
+      total_tokens: 500,
+      summary: 'Rich insight',
+      outcome: 'completed',
+    });
+    mockDb.db.prepare().all.mockReturnValue([{
+      id: 9,
+      type: 'pattern',
+      title: 'Use indexes',
+      body: 'Always index FK columns.',
+      file_ref: 'config/schema.sql:10',
+      tags: 'db, perf',
+    }]);
+
+    const result = await (registeredHandler as any)({ session_id: 'rich-s' });
+    const text = result.content[0].text;
+
+    expect(text).toContain('ref: config/schema.sql:10');
+    expect(text).toContain('tags: db, perf');
+  });
+
+  it('should omit transcript section when include_transcript=true but none stored', async () => {
+    mockDb.db.prepare().get
+      .mockReturnValueOnce({
+        id: 'no-tx',
+        started_at: Date.now(),
+        ended_at: Date.now(),
+        project_path: '/app',
+        turn_count: 0,
+        total_tokens: 0,
+        summary: 'No transcript',
+        outcome: 'completed',
+      })
+      .mockReturnValueOnce(undefined); // transcript query returns nothing
+    mockDb.db.prepare().all.mockReturnValue([]);
+
+    const result = await (registeredHandler as any)({ session_id: 'no-tx', include_transcript: true });
+
+    expect(result.content[0].text).not.toContain('Transcript');
   });
 });

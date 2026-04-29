@@ -49,9 +49,33 @@ describe('RemoveInsightTool', () => {
 
   it('should notify if no matching insights are found', async () => {
     mockDb.db.prepare().all.mockReturnValue([]);
-    
+
     const result = await (registeredHandler as any)({ title: 'Non-existent' });
 
     expect(result.content[0].text).toBe('No matching insights found.');
+  });
+
+  it('should remove by title only', async () => {
+    mockDb.db.prepare().all.mockReturnValue([{ id: 5 }]);
+
+    const result = await (registeredHandler as any)({ title: 'My Insight' });
+
+    expect(mockDb.db.transaction).toHaveBeenCalled();
+    expect(result.content[0].text).toContain('Removed 1 insight(s): #5');
+  });
+
+  it('should apply AND condition when both id and title provided', async () => {
+    mockDb.db.prepare().all.mockReturnValue([{ id: 7 }]);
+
+    const result = await (registeredHandler as any)({ id: 7, title: 'Exact Match' });
+
+    const prepareCalls = mockDb.db.prepare.mock.calls;
+    const selectSql = prepareCalls.find((c: any[]) =>
+      typeof c[0] === 'string' && c[0].includes('SELECT id FROM insights')
+    )?.[0] as string;
+
+    expect(selectSql).toContain('id = ?');
+    expect(selectSql).toContain('title = ?');
+    expect(result.content[0].text).toContain('#7');
   });
 });
