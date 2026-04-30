@@ -13,7 +13,7 @@ describe('AddInsightTool', () => {
     const mockStatement = {
       run: vi.fn().mockReturnValue({ lastInsertRowid: 456, changes: 1 }),
       get: vi.fn().mockReturnValue({ id: "existing-session" }),
-      all: vi.fn(),
+      all: vi.fn().mockReturnValue([]),
     };
 
     mockDb = {
