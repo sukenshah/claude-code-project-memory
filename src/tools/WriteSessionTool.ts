@@ -19,7 +19,7 @@ export class WriteSessionTool implements BaseTool {
           "Call this at session end (stop hook). Insights are typed entries " +
           "(decision, pattern, mistake, blocker, learning) extracted from the session.",
         inputSchema: {
-          session_id: z.string().describe("Unique session identifier from Claude"),
+          session_id: z.string().optional().describe("Unique session identifier (auto-generated if omitted)"),
           project_path: z.string().optional().describe("Project working directory (defaults to server PROJECT_PATH)"),
           started_at: z.number().describe("Session start time as Unix epoch ms"),
           ended_at: z.number().describe("Session end time as Unix epoch ms"),
@@ -47,7 +47,7 @@ export class WriteSessionTool implements BaseTool {
   }
 
   private async handle(input: {
-    session_id: string;
+    session_id?: string;
     project_path?: string;
     started_at: number;
     ended_at: number;
@@ -65,12 +65,13 @@ export class WriteSessionTool implements BaseTool {
     }>;
     transcript?: string;
   }) {
+    const sessionId = input.session_id ?? (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
     const projectPath = input.project_path ?? this.db.projectPath;
     const now = Date.now();
 
     const writeAll = this.db.db.transaction(() => {
       this.db.insertSession({
-        id: input.session_id,
+        id: sessionId,
         project_path: projectPath,
         started_at: input.started_at,
         ended_at: input.ended_at,
@@ -80,7 +81,7 @@ export class WriteSessionTool implements BaseTool {
       });
 
       this.db.insertSummary({
-        session_id: input.session_id,
+        session_id: sessionId,
         summary: input.summary,
         outcome: input.outcome,
         created_at: now,
@@ -89,7 +90,7 @@ export class WriteSessionTool implements BaseTool {
       const inserted: Array<{ id: number; title: string; body: string }> = [];
       for (const insight of input.insights ?? []) {
         const id = this.db.insertInsightWithTags(
-          input.session_id,
+          sessionId,
           insight.type,
           insight.title,
           insight.body,
@@ -100,7 +101,7 @@ export class WriteSessionTool implements BaseTool {
       }
 
       if (input.transcript) {
-        this.db.insertTranscript(input.session_id, input.transcript);
+        this.db.insertTranscript(sessionId, input.transcript);
       }
 
       return inserted;
@@ -111,7 +112,7 @@ export class WriteSessionTool implements BaseTool {
 
     return {
       content: [
-        { type: "text" as const, text: `Session ${input.session_id} saved. ${inserted.length} insight(s) stored.` },
+        { type: "text" as const, text: `Session ${sessionId} saved. ${inserted.length} insight(s) stored.` },
       ],
     };
   }

@@ -6,9 +6,15 @@ const INSTRUCTIONS = `PROJECT MEMORY ACTIVE (project-memory MCP)
 
 This is your persistent long-term memory. Insights, decisions, patterns, mistakes, and blockers are stored in a per-project SQLite DB and recalled across sessions.
 
-You MUST call \`query_insights\` NOW with a broad search term (e.g. the project name or "architecture") before responding to anything. Do not skip this — past decisions and known mistakes must be loaded into context first.
+You MUST run these queries NOW in order before responding to anything:
 
-During work: call \`add_insight\` whenever you make a significant decision, spot a pattern, hit a blocker, or make a mistake worth remembering.
+1. Call \`query_insights\` with type="mistake" — surface all known failure modes first
+2. Call \`query_insights\` with type="blocker" — surface all known blockers
+3. Call \`query_insights\` with search="<project name or task area>" — broad context
+
+If results from steps 1 or 2 include anything relevant to the current task, surface them as ⚠ WARNINGS before proceeding. Do not skip this — past mistakes must be loaded before work begins.
+
+During work: call \`add_insight\` for significant decisions, blockers hit, or non-obvious facts discovered. Prioritize type=mistake and type=blocker — these are highest value for future sessions.
 At session end: call \`write_session\` with a 2-5 sentence summary, outcome (completed|partial|abandoned), and any remaining insights.
 
 Insight types:
