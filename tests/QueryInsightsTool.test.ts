@@ -86,7 +86,7 @@ describe("QueryInsightsTool", () => {
     // Verify lines 131-138: ensure mapping logic handles presence/absence of optional fields
     expect(text).toContain("2 insight(s):");
     expect(text).toContain("[DECISION] Database Selection");
-    expect(text).toContain("ref: src/db.ts");
+    expect(text).toContain("→ FILE: src/db.ts");
     expect(text).toContain("tags: db, sql");
     expect(text).toContain("[MISTAKE] Async Race Condition");
   });

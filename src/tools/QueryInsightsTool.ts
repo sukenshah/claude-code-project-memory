@@ -86,16 +86,25 @@ export class QueryInsightsTool implements BaseTool {
       return { content: [{ type: "text" as const, text: "No insights found." }] };
     }
 
+    // Mistakes and blockers float to top — they are highest-value for decision-making
+    rows.sort((a, b) => {
+      const priority = (type: string) => (type === "mistake" || type === "blocker" ? 0 : 1);
+      return priority(a.type) - priority(b.type);
+    });
+
+    const hasWarnings = rows.some((r) => r.type === "mistake" || r.type === "blocker");
+    const header = hasWarnings ? "⚠ WARNINGS: mistakes/blockers listed first — review before proceeding.\n\n" : "";
+
     const text = rows
       .map((r) => {
         const date = new Date(r.created_at).toISOString().slice(0, 10);
-        const ref = r.file_ref ? `  ref: ${r.file_ref}\n` : "";
+        const ref = r.file_ref ? `  → FILE: ${r.file_ref}\n` : "";
         const tags = r.tags ? `  tags: ${r.tags}\n` : "";
         return `[${r.type.toUpperCase()}] ${r.title}  (${date}, session: ${r.session_id.slice(0, 8)})\n${ref}${tags}  ${r.body}`;
       })
       .join("\n\n---\n\n");
 
-    return { content: [{ type: "text" as const, text: `${rows.length} insight(s):\n\n${text}` }] };
+    return { content: [{ type: "text" as const, text: `${rows.length} insight(s):\n\n${header}${text}` }] };
   }
 
   private async semanticOrLike(
@@ -117,11 +126,10 @@ export class QueryInsightsTool implements BaseTool {
              FROM insight_vec_v2
              WHERE embedding MATCH ?
              AND k = ?
-             AND distance < 0.7
+             AND distance < 0.5
              ORDER BY distance`
           )
-          .all(queryVec, limit * 4) as Array<{ insight_id: bigint; distance: number }>;
-          // distance strict (0.4 - 0.6), sweet spot (0.6 - 0.8), and loose match (0.8 - 1.0)
+          .all(queryVec, limit * 2) as Array<{ insight_id: bigint; distance: number }>;
 
         if (knnRows.length > 0) {
           const ids = knnRows.map((r) => Number(r.insight_id));
