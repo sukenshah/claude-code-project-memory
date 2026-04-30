@@ -18,7 +18,7 @@ hooks/uninstall.sh       — removes MCP registration and hook from settings.jso
 hooks/session-start.js   — SessionStart hook: injects memory usage instructions into Claude context
 hooks/user-prompt.js     — UserPromptSubmit hook: reminds Claude to query memory before each response
 hooks/stop.js            — Stop hook: instructs Claude to call write_session before finishing
-hooks/pre-compact.js     — PreCompact hook: instructs Claude to snapshot memory before compaction
+hooks/post-compact.js    — PostCompact hook: instructs Claude to snapshot memory before compaction
 ```
 
 ## Plugin hook system

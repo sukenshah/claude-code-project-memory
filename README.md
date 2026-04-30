@@ -165,7 +165,7 @@ Then run `bash hooks/install.sh`.
    npm run build
    ```
 
-2. Register the MCP server in `~/.claude/settings.json`:
+2. Register the MCP server in `~/.claude.json`:
    ```json
    {
      "mcpServers": {
@@ -215,12 +215,12 @@ Then run `bash hooks/install.sh`.
            ]
          }
        ],
-       "PreCompact": [
+       "PostCompact": [
          {
            "hooks": [
              {
                "type": "command",
-               "command": "node \"/absolute/path/to/claude-code-project-memory/hooks/pre-compact.js\"",
+               "command": "node \"/absolute/path/to/claude-code-project-memory/hooks/post-compact.js\"",
                "timeout": 10
              }
            ]

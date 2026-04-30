@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 // project-memory — Claude Code UserPromptSubmit hook
-// Reminds Claude to query project memory for the current prompt if not already recalled.
+// Instructs Claude to query and surface relevant insights before responding.
 
-const INSTRUCTIONS = `If project memory has not been queried yet this session, call \`query_insights\` now with a search term relevant to the current request before responding. This surfaces past decisions, patterns, and mistakes that apply to the task at hand.`;
+const INSTRUCTIONS = `If project memory has not been queried yet this session:
+1. Call \`query_insights\` with a search term from the current request.
+2. If results include type=mistake or type=blocker, surface them as warnings before answering.
+3. If results include type=decision or type=pattern, treat them as established context — don't re-debate settled choices.
+
+If project memory was already queried: check if the current request involves a different area than what was searched. If so, run a targeted \`query_insights\` call for this specific topic before responding.`;
 
 process.stdout.write(INSTRUCTIONS);

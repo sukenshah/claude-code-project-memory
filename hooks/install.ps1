@@ -106,7 +106,7 @@ node -e @"
   registerHook('SessionStart',     'session-start.js', 'Loading project memory...');
   registerHook('UserPromptSubmit', 'user-prompt.js',   'Checking project memory...');
   registerHook('Stop',             'stop.js',          'Saving project memory...');
-  registerHook('PreCompact',       'pre-compact.js',   'Snapshotting project memory...');
+  registerHook('PostCompact',       'post-compact.js',   'Snapshotting project memory...');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 "@

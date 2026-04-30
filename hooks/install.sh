@@ -46,7 +46,7 @@ if [ "$FORCE" -eq 0 ]; then
         s.hooks[event].some(e =>
           e.hooks && e.hooks.some(h => h.command && h.command.includes('project-memory'))
         );
-      hasHooks = hasHook('SessionStart') && hasHook('UserPromptSubmit') && hasHook('Stop') && hasHook('PreCompact');
+      hasHooks = hasHook('SessionStart') && hasHook('UserPromptSubmit') && hasHook('Stop') && hasHook('PostCompact') && hasHook('EndSession');
     } catch (e) {}
     process.stdout.write(hasMcp && hasHooks ? 'yes' : 'no');
   " 2>/dev/null || echo "no")
@@ -124,7 +124,8 @@ PLUGIN_DIR="$PLUGIN_DIR" SETTINGS_PATH="$SETTINGS" node -e "
   registerHook('SessionStart',     'session-start.js', 'Loading project memory...');
   registerHook('UserPromptSubmit', 'user-prompt.js',   'Checking project memory...');
   registerHook('Stop',             'stop.js',          'Saving project memory...');
-  registerHook('PreCompact',       'pre-compact.js',   'Snapshotting project memory...');
+  registerHook('EndSession',       'end-session.js',    'Finalizing project memory...');
+  registerHook('PostCompact',       'post-compact.js',   'Snapshotting project memory...');
 
   fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 "
@@ -135,6 +136,7 @@ echo ""
 echo "What's installed:"
 echo "  - MCP server: project-memory (user scope, all projects)"
 echo "  - SessionStart hook: Claude queries memory at session start"
+echo "  - EndSession hook:   Claude finalizes memory at session end"
 echo "  - Stop hook:         Claude writes session summary before finishing"
-echo "  - PreCompact hook:   Claude snapshots memory before context compaction"
+echo "  - PostCompact hook:  Claude snapshots memory after context compaction"
 echo "  - DB location: <project>/.claude/project-memory/insights.db (per-project)"

@@ -26,7 +26,7 @@ if [ -f "$SETTINGS" ]; then
   node -e "
     const fs = require('fs');
     const settings = JSON.parse(fs.readFileSync('$SETTINGS', 'utf8'));
-    for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop', 'PreCompact']) {
+    for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop', 'PreCompact', 'EndSession']) {
       if (Array.isArray(settings.hooks?.[event])) {
         const before = settings.hooks[event].length;
         settings.hooks[event] = settings.hooks[event].filter(e =>
