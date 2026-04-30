@@ -104,7 +104,28 @@ Windows:
 ```powershell
 .\hooks\install.ps1
 .\hooks\uninstall.ps1   # to uninstall
+.\hooks\reinstall.ps1   # to update (see below)
 ```
+
+### Updating to the latest version
+
+After pulling new changes, reinstall the plugin to rebuild the server and re-register all hooks:
+
+```bash
+git pull
+bash hooks/reinstall.sh
+```
+
+Windows:
+
+```powershell
+git pull
+.\hooks\reinstall.ps1
+```
+
+This removes the existing MCP registration and hooks, rebuilds the server from source, and re-registers everything. **Your project memory databases are not affected** — all stored insights and session history are preserved.
+
+Restart Claude Code after reinstalling to activate the updated plugin.
 
 ### First-run: hydrate memory for an existing project
 
