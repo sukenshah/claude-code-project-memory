@@ -10,6 +10,7 @@ import { GetSessionDetailTool } from "./tools/GetSessionDetailTool.js";
 import { QueryInsightsTool } from "./tools/QueryInsightsTool.js";
 import { ReindexInsightsTool } from "./tools/ReindexInsightsTool.js";
 import { RemoveInsightTool } from "./tools/RemoveInsightTool.js";
+import { ReviewDuplicatesTool } from "./tools/ReviewDuplicatesTool.js";
 import { WriteSessionTool } from "./tools/WriteSessionTool.js";
 
 const PROJECT_PATH = process.env.PROJECT_PATH ?? process.cwd();
@@ -29,6 +30,7 @@ const tools = [
   new GetRecentSessionsTool(db),
   new GetSessionDetailTool(db),
   new ReindexInsightsTool(db, embeddings),
+  new ReviewDuplicatesTool(db, embeddings),
 ];
 
 for (const tool of tools) tool.register(server);

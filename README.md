@@ -66,6 +66,7 @@ If the embedding model is unavailable or the vector table is empty, `query_insig
 | `get_recent_sessions` | List recent sessions with summaries and insight counts. |
 | `get_session_detail` | Get full detail for a session, including all insights and optionally the transcript. |
 | `reindex_insights` | Backfill semantic embeddings for insights written before vector search was added. |
+| `review_duplicates` | Scan all stored insights for duplicates or near-duplicates. Uses vector similarity when embeddings are available, falling back to title word-overlap (Jaccard). Returns grouped clusters with IDs — pipe results into `remove_insight` to clean up. |
 
 ### Insight types
 
