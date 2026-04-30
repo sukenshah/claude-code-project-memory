@@ -82,36 +82,102 @@ If the embedding model is unavailable or the vector table is empty, `query_insig
 - Node.js 20+
 - Claude Code CLI
 
-### Setup
+### Plugin install (recommended)
 
-1. Clone the repository:
+Builds the server and wires all hooks automatically — no manual JSON editing required.
+
+```bash
+git clone https://github.com/sukenshah/claude-code-project-memory.git
+cd claude-code-project-memory
+bash hooks/install.sh
+```
+
+Restart Claude Code to activate. To uninstall:
+
+```bash
+bash hooks/uninstall.sh
+```
+
+Windows:
+
+```powershell
+.\hooks\install.ps1
+.\hooks\uninstall.ps1   # to uninstall
+```
+
+### First-run: hydrate memory for an existing project
+
+After installing, run this prompt in Claude Code from your project's root directory. It scans the codebase and seeds the memory database with insights Claude would otherwise only accumulate session-by-session.
+
+```
+Scan this codebase and populate project memory with insights using the project-memory MCP tools.
+
+For each of the following categories, extract concrete, specific insights — not summaries of the README:
+
+- **Patterns** (type: pattern): recurring idioms, conventions, and approaches used consistently across the codebase. Examples: how errors are handled, how tests are structured, naming conventions, how config is loaded.
+- **Decisions** (type: decision): architectural or design choices visible in the code. Examples: choice of framework/library, DB schema design, API shape, file organization rationale.
+- **Learnings** (type: learning): non-obvious things about the codebase a new contributor would need to know. Examples: gotchas, constraints, why a seemingly-simpler approach wasn't used.
+
+Steps:
+1. Explore the repo structure: entry points, key directories, main source files, config files, tests.
+2. Read enough code to extract real insights — not surface-level observations.
+3. For each insight, call `add_insight` with a specific title, detailed body, and relevant tags.
+4. Aim for 10–20 high-signal insights. Skip obvious things derivable from file names alone.
+
+Do not call `write_session` — insights only.
+```
+
+This takes 2–5 minutes depending on project size. After it completes, future sessions will start with relevant context already loaded.
+
+### Migrating from manual configuration
+
+If you previously configured this server by hand, remove the old entries **before** running `install.sh` to avoid duplicate MCP servers and double-injected hook instructions.
+
+**1. Remove the old MCP server entry** from `~/.claude/settings.json` (or `.mcp.json`). The key was likely `"project-memory-mcp"` or `"project-memory"`:
+
+```json
+"mcpServers": {
+  "project-memory-mcp": { ... }   ← delete this entry
+}
+```
+
+**2. Remove the old hook entries** from `~/.claude/settings.json` (or `.claude/settings.json`). Delete the `SessionStart`, `Stop`, and `PreCompact` blocks that contain `printf`, `jq`, or `project-memory-mcp` in their commands:
+
+```json
+"hooks": {
+  "SessionStart": [ { "matcher": "startup", "hooks": [ { "command": "jq -n ..." } ] } ],  ← delete
+  "Stop":         [ { "matcher": "",        "hooks": [ { "command": "printf 'SESSION END..." } ] } ],  ← delete
+  "PreCompact":   [ { "matcher": "",        "hooks": [ { "command": "printf 'PRE-COMPACT..." } ] } ]   ← delete
+}
+```
+
+Then run `bash hooks/install.sh`.
+
+### Manual setup
+
+<details>
+<summary>Manual configuration (advanced)</summary>
+
+1. Clone and build:
    ```bash
    git clone https://github.com/sukenshah/claude-code-project-memory.git
    cd claude-code-project-memory
-   ```
-
-2. Install dependencies and build:
-   ```bash
    npm run build
    ```
 
-3. Register the MCP server in your project-specific config `.mcp.json`:
+2. Register the MCP server in `~/.claude/settings.json`:
    ```json
    {
      "mcpServers": {
        "project-memory": {
          "command": "node",
-         "args": ["</absolute/path/to/>claude-code-project-memory/dist/index.js"],
-         "env": {
-           "PROJECT_PATH": "/path/to/your/project"
-         }
+         "args": ["/absolute/path/to/claude-code-project-memory/dist/index.js"]
        }
      }
    }
    ```
 
-4. Add the following hooks to your project-specific Claude Code settings (`.claude/settings.json`). Copy the entire block — it covers session start, session end, and pre-compaction.
-
+3. Add hooks to `~/.claude/settings.json`:
    ```json
    {
      "hooks": {
@@ -121,29 +187,41 @@ If the embedding model is unavailable or the vector table is empty, `query_insig
            "hooks": [
              {
                "type": "command",
-               "command": "jq -n --arg ctx 'MEMORY INSTRUCTIONS\\n\\nYou have access to a project memory MCP server (project-memory-mcp).\\n\\nSESSION START: Call query_insights (no filters, or filtered by current project_path) to recall relevant past decisions, patterns, and mistakes before beginning work.\\n\\nDURING THE SESSION — call add_insight immediately and inline (do not defer to session end) when you:\\n- Make an architectural or design decision that is not obvious from the code\\n- Discover a non-obvious constraint, invariant, or gotcha\\n- Make a mistake and correct it\\n- Confirm that a particular approach works well\\nDo NOT call add_insight for things derivable from reading the code, routine steps, or anything already captured. Quality over quantity — one precise insight beats three vague ones.\\nUse the tightest applicable type: decision > pattern > learning > blocker > mistake. Always add tags so insights are findable across sessions.\\nInsight quality rules:\\n- title: one line, specific enough to be useful out of context\\n- body: lead with the rule or fact, then Why: and How to apply:\\n- file_ref: include when the insight ties to a specific location (e.g. src/handlers/auth.ts:42)\\n- tags: consistent lowercase slugs (e.g. auth, dynamo, cdk, frontend, lambda, mcp)\\n\\nSESSION END: Call write_session to persist a summary and outcome. Do not repeat insights already saved inline via add_insight.' '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:$ctx}}'"
+               "command": "node \"/absolute/path/to/claude-code-project-memory/hooks/session-start.js\"",
+               "timeout": 10
+             }
+           ]
+         }
+       ],
+       "UserPromptSubmit": [
+         {
+           "hooks": [
+             {
+               "type": "command",
+               "command": "node \"/absolute/path/to/claude-code-project-memory/hooks/user-prompt.js\"",
+               "timeout": 10
              }
            ]
          }
        ],
        "Stop": [
          {
-           "matcher": "",
            "hooks": [
              {
                "type": "command",
-               "command": "printf 'SESSION END: Call write_session on project-memory-mcp now.\\n- Use the current session_id and project_path.\\n- Write a 2-5 sentence summary of what was accomplished and why.\\n- Set outcome to completed, partial, or abandoned as appropriate.\\n- Include any insights not yet saved inline via add_insight during the session.\\n- Do NOT repeat insights already saved via add_insight.'"
+               "command": "node \"/absolute/path/to/claude-code-project-memory/hooks/stop.js\"",
+               "timeout": 10
              }
            ]
          }
        ],
        "PreCompact": [
          {
-           "matcher": "",
            "hooks": [
              {
                "type": "command",
-               "command": "printf 'PRE-COMPACT: Context is about to be compacted. Call write_session on project-memory-mcp before this happens.\\n- Use the current session_id and project_path.\\n- Write a summary of work done so far and set outcome to partial.\\n- Save any insights not yet recorded via add_insight — decisions, patterns, mistakes, blockers, or learnings from this session.\\n- Do NOT repeat insights already saved via add_insight.\\nAfter compaction, call query_insights at the start of the new context to restore relevant memory.'"
+               "command": "node \"/absolute/path/to/claude-code-project-memory/hooks/pre-compact.js\"",
+               "timeout": 10
              }
            ]
          }
@@ -152,7 +230,7 @@ If the embedding model is unavailable or the vector table is empty, `query_insig
    }
    ```
 
-   > `SessionStart` (`matcher: "startup"`) injects memory instructions before the first user message. Add a second entry with `"matcher": "resume"` to also inject on session resume. `Stop` and `PreCompact` use plain `printf` stdout, which Claude receives as a follow-up prompt.
+</details>
 
 ## Database
 
