@@ -1,6 +1,49 @@
 #!/usr/bin/env node
 // project-memory — Claude Code SessionStart hook
-// Gives Claude a full mental model of project-memory and forces a query at session start.
+// Materializes top mistakes/blockers directly into context, then gives instructions.
+
+const path = require('path');
+const { execSync } = require('child_process');
+const { existsSync } = require('fs');
+
+function getRecalledInsights() {
+  const dbPath = path.join(process.cwd(), '.claude', 'project-memory', 'insights.db');
+  if (!existsSync(dbPath)) return '';
+
+  try {
+    const sql = "SELECT type, title, body, file_ref FROM insights WHERE type IN ('mistake','blocker') ORDER BY created_at DESC LIMIT 8;";
+    const raw = execSync(`sqlite3 -separator '|||' "${dbPath}" "${sql}"`, {
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['pipe', 'pipe', 'ignore'],
+    }).trim();
+
+    if (!raw) return '';
+
+    const rows = raw.split('\n').map(line => {
+      const [type, title, body, file_ref] = line.split('|||');
+      return {
+        type: (type || '').trim(),
+        title: (title || '').trim(),
+        body: (body || '').trim(),
+        file_ref: (file_ref || '').trim(),
+      };
+    }).filter(r => r.type && r.title);
+
+    if (rows.length === 0) return '';
+
+    const formatted = rows.map(r => {
+      const ref = r.file_ref ? `\n  → FILE: ${r.file_ref}` : '';
+      return `[${r.type.toUpperCase()}] ${r.title}${ref}\n  ${r.body}`;
+    }).join('\n\n');
+
+    return `## ⚠ Recalled Mistakes & Blockers (from project memory)\n\n${formatted}\n\n---\n\n`;
+  } catch {
+    return '';
+  }
+}
+
+const recalled = getRecalledInsights();
 
 const INSTRUCTIONS = `PROJECT MEMORY ACTIVE (project-memory MCP)
 
@@ -16,6 +59,10 @@ If results from steps 1 or 2 include anything relevant to the current task, surf
 
 During work: call \`add_insight\` for significant decisions, blockers hit, or non-obvious facts discovered. Prioritize type=mistake and type=blocker — these are highest value for future sessions.
 At session end: call \`write_session\` with a 2-5 sentence summary, outcome (completed|partial|abandoned), and any remaining insights.
+
+CONSTRAINTS:
+- ALWAYS use project-memory MCP tools to read/write insights — do NOT query the SQLite DB directly via Bash or use ToolSearch as a workaround
+- If project-memory MCP tools are unavailable, STOP and report the server health issue — do not attempt workarounds
 
 Insight types:
 - decision   — architectural or design choice made and why
@@ -33,4 +80,4 @@ Tools (MCP server: project-memory):
 - get_session_detail   — full detail for one session
 - reindex_insights     — rebuild embedding index`;
 
-process.stdout.write(INSTRUCTIONS);
+process.stdout.write(recalled + INSTRUCTIONS);
