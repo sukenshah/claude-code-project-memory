@@ -98,4 +98,41 @@ export class DatabaseService {
   insertEmbedding(insightId: BigInt, embedding: Float32Array<ArrayBufferLike>): void {
     this.stmtInsertEmbedding.run(insightId, embedding);
   }
+
+  findSimilarByVector(
+    vector: Float32Array,
+    distanceThreshold: number,
+    limit: number
+  ): Array<{ id: number; type: string; title: string; body: string; distance: number }> {
+    const { n } = this.db.prepare("SELECT count(*) AS n FROM insight_vec_v2").get() as { n: number };
+    if (n === 0) return [];
+
+    try {
+      const knnRows = this.db
+        .prepare(
+          `SELECT insight_id, distance
+           FROM insight_vec_v2
+           WHERE embedding MATCH ?
+           AND k = ?
+           AND distance < ${distanceThreshold}
+           ORDER BY distance`
+        )
+        .all(vector, limit) as Array<{ insight_id: bigint; distance: number }>;
+
+      if (knnRows.length === 0) return [];
+
+      const ids = knnRows.map((r) => Number(r.insight_id));
+      const placeholders = ids.map(() => "?").join(", ");
+      const rows = this.db
+        .prepare(`SELECT id, type, title, body FROM insights WHERE id IN (${placeholders})`)
+        .all(...ids) as Array<{ id: number; type: string; title: string; body: string }>;
+
+      const distanceMap = new Map(knnRows.map((r) => [Number(r.insight_id), r.distance]));
+      return rows
+        .map((r) => ({ ...r, distance: distanceMap.get(r.id) ?? 0 }))
+        .sort((a, b) => a.distance - b.distance);
+    } catch {
+      return [];
+    }
+  }
 }

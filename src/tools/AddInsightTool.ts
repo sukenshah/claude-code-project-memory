@@ -41,15 +41,23 @@ export class AddInsightTool implements BaseTool {
   }) {
     const sessionId = input.session_id ?? (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
 
-    const similar = this.findSimilarTitle(input.title, sessionId);
-    if (similar) {
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Near-duplicate detected: insight #${similar.id} already has title "${similar.title}". ` +
-                `Use remove_insight to delete the old one first, or choose a more specific title.`,
-        }],
-      };
+    try {
+      const vec = await this.embeddings.embed(`${input.title}. ${input.body}`);
+      const similar = this.db.findSimilarByVector(vec, 0.35, 3);
+      if (similar.length > 0) {
+        const top = similar[0];
+        const snippet = top.body.length > 120 ? top.body.slice(0, 120) + "..." : top.body;
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Near-duplicate detected (distance: ${top.distance.toFixed(3)}): ` +
+                  `insight #${top.id} [${top.type}] "${top.title}" — ${snippet}\n` +
+                  `Use remove_insight to delete the old one first, or rephrase to be more specific.`,
+          }],
+        };
+      }
+    } catch {
+      // Embedding unavailable — skip dedup, proceed with insert
     }
 
     const exists = this.db.db.prepare("SELECT id FROM sessions WHERE id = ?").get(sessionId);
@@ -79,24 +87,5 @@ export class AddInsightTool implements BaseTool {
     return {
       content: [{ type: "text" as const, text: `Insight #${id} added to session ${sessionId}.` }],
     };
-  }
-
-  private findSimilarTitle(title: string, sessionId: string): { id: number; title: string } | null {
-    const tokenize = (s: string) =>
-      new Set(s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean));
-    const newTokens = tokenize(title);
-    if (newTokens.size === 0) return null;
-
-    const existing = this.db.db
-      .prepare("SELECT id, title FROM insights WHERE session_id != ? ORDER BY created_at DESC LIMIT 200")
-      .all(sessionId) as Array<{ id: number; title: string }>;
-
-    for (const row of existing) {
-      const existingTokens = tokenize(row.title);
-      const intersection = [...newTokens].filter((t) => existingTokens.has(t)).length;
-      const union = new Set([...newTokens, ...existingTokens]).size;
-      if (union > 0 && intersection / union >= 0.75) return row;
-    }
-    return null;
   }
 }
